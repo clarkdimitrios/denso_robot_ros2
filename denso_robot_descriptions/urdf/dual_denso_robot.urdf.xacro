@@ -3,7 +3,7 @@
   
   <xacro:arg name="model" default="vm60b1"/>
 
-  <xacro:include filename="$(find manip_facts_lab)/urdf/dual_denso_robot_macro.xacro"/>
+  <xacro:include filename="$(find dual_denso_arm_manipulation)/urdf/dual_denso_robot_macro.xacro"/>
 
   <xacro:dual_denso_robot model="$(arg model)"/>
 
