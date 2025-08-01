@@ -31,6 +31,7 @@ from launch.substitution import Substitution
 from typing import Iterable
 from typing import Text
 from launch.some_substitutions_type import SomeSubstitutionsType
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 """ Function for loading a yaml file. """
@@ -145,13 +146,18 @@ def generate_launch_description():
             description='YAML file with the controllers configuration.'))
     declared_arguments.append(
         DeclareLaunchArgument(
+            'moveit_controllers_file',
+            default_value='moveit_controllers.yaml',
+            description='MoveIt controllers config file.'))
+    declared_arguments.append(
+        DeclareLaunchArgument(
             'robot_controller', default_value='denso_joint_trajectory_controller',
             description='Robot controller to start.'))
 # Execution arguments (Rviz and Gazebo)
 # TODO: shall we give the user the choice not to load the rviz graphical environment ??
-#    declared_arguments.append(
-#        DeclareLaunchArgument('launch_rviz', default_value='true', description='Launch RViz?')
-#    )
+    declared_arguments.append(
+        DeclareLaunchArgument('launch_rviz', default_value='true', description='Launch RViz?')
+    )
     declared_arguments.append(
         DeclareLaunchArgument(
             'sim', default_value='true',
@@ -172,7 +178,7 @@ def generate_launch_description():
     moveit_config_package = LaunchConfiguration('moveit_config_package')
     moveit_config_file = LaunchConfiguration('moveit_config_file')
     namespace = LaunchConfiguration('namespace')
-#    launch_rviz = LaunchConfiguration('launch_rviz')
+    launch_rviz = LaunchConfiguration('launch_rviz')
     sim = LaunchConfiguration('sim')
     verbose = LaunchConfiguration('verbose')
     controllers_file = LaunchConfiguration('controllers_file')
@@ -198,7 +204,9 @@ def generate_launch_description():
             'verbose:=', verbose, ' ',
             'sim:=', sim, ' '
         ])
-    robot_description = {'robot_description': robot_description_content}
+    # robot_description = {'robot_description': robot_description_content}
+    robot_description = {'robot_description': ParameterValue(
+        robot_description_content, value_type=str)}
 
 # --------- MoveIt Configuration ---------
 
@@ -240,11 +248,26 @@ def generate_launch_description():
         'moveit_controller_manager': 'moveit_simple_controller_manager'\
             + '/MoveItSimpleControllerManager',
     }
+    # moveit_controllers_file = PathJoinSubstitution(
+    #     [
+    #         FindPackageShare(moveit_config_package), 'robots',
+    #         denso_robot_model, 'config/moveit_controllers.yaml'
+    #     ])
     moveit_controllers_file = PathJoinSubstitution(
         [
             FindPackageShare(moveit_config_package), 'robots',
-            denso_robot_model, 'config/moveit_controllers.yaml'
+            denso_robot_model, 'config', LaunchConfiguration('moveit_controllers_file')
         ])
+    # moveit_controllers_file = Command([
+    #     PathJoinSubstitution([FindExecutable(name='xacro')]), ' ',
+    #     PathJoinSubstitution([
+    #         FindPackageShare(moveit_config_package), 'robots',
+    #         denso_robot_model, 'config', 'moveit_controllers.yaml.xacro'
+    #     ]),
+    #     ' ',
+    #     'namespace:=', namespace
+    # ])
+
     trajectory_execution = {
         'moveit_manage_controllers': False,
         'trajectory_execution.allowed_execution_duration_scaling': 1.2,
@@ -358,7 +381,7 @@ def generate_launch_description():
 
     rviz_node = Node(
         package='rviz2',
-#        condition=IfCondition(launch_rviz),
+        condition=IfCondition(launch_rviz),
         executable='rviz2',
         name='rviz2_moveit',
         output='log',
