@@ -1,5 +1,5 @@
 
-# ROS2 Driver Packages for DENSO Robots
+# ROS2 Driver Packages for DENSO Robots (Fork compatible with the VM-60B1 model)
 
 The DENSO robot ROS2 stack contains libraries, configuration files, and ROS2 nodes for controlling a DENSO robot from ROS2 ([MoveIt2](https://moveit.ros.org/) and [Gazebo simulator](http://gazebosim.org/)).
 
