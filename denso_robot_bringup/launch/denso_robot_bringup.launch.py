@@ -14,7 +14,6 @@
 #
 # Author: DENSO WAVE INCORPORATED
 
-
 import os
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -35,8 +34,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 """ Function for loading a yaml file. """
-
-
 def load_yaml(package_name, file_path):
     package_path = get_package_share_directory(package_name)
     absolute_file_path = os.path.join(package_path, file_path)
@@ -51,8 +48,6 @@ def load_yaml(package_name, file_path):
 
 Helpful for namespaces and/or MULTI-ROBOT applications.
 """
-
-
 class TextJoinSubstitution(Substitution):
     """Substitution that join paths, in a platform independent way."""
 
@@ -86,19 +81,15 @@ class TextJoinSubstitution(Substitution):
 
 
 """ Launch Description generator function. """
-
-
 def generate_launch_description():
 
     declared_arguments = []
 
-# Denso specific arguments
+    # ----------------------- Denso specific arguments -----------------------
     declared_arguments.append(
         DeclareLaunchArgument(
             'model',
             description='Type/series of used denso robot.'))
-    # TODO: shall we let the user to only select from a list of robots ??
-    # choices=['cobotta', 'vs060', 'vs087']))
     declared_arguments.append(
         DeclareLaunchArgument(
             'send_format', default_value='288',
@@ -115,12 +106,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'ip_address', default_value='192.168.0.1',
             description='IP address by which the robot can be reached.'))
-# Configuration arguments
+
+    # ----------------------- Configuration arguments -----------------------
     declared_arguments.append(
         DeclareLaunchArgument(
             'description_package', default_value='denso_robot_descriptions',
-            description='Description package with robot URDF/XACRO files. Usually the argument' \
-                + ' is not set, it enables use of a custom description.'))
+            description='Description package with robot URDF/XACRO files.'))
     declared_arguments.append(
         DeclareLaunchArgument(
             'description_file', default_value='denso_robot.urdf.xacro',
@@ -128,8 +119,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             'moveit_config_package', default_value='denso_robot_moveit_config',
-            description='MoveIt config package with robot SRDF/XACRO files. Usually the argument' \
-                + ' is not set, it enables use of a custom moveit config.'))
+            description='MoveIt config package with robot SRDF/XACRO files.'))
     declared_arguments.append(
         DeclareLaunchArgument(
             'moveit_config_file', default_value='denso_robot.srdf.xacro',
@@ -137,9 +127,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             'namespace', default_value='',
-            description="Prefix of the joint names, useful for" \
-                + " multi-robot setup. If changed than also joint names in the controllers'" \
-                + " configuration have to be updated."))
+            description="Prefix of the joint names, useful for multi-robot setup."))
     declared_arguments.append(
         DeclareLaunchArgument(
             'controllers_file', default_value='denso_robot_controllers.yaml',
@@ -149,12 +137,14 @@ def generate_launch_description():
             'moveit_controllers_file',
             default_value='moveit_controllers.yaml',
             description='MoveIt controllers config file.'))
+
+    # ----------------------- EDITED: Multiple controllers supported -----------------------
     declared_arguments.append(
         DeclareLaunchArgument(
             'robot_controller', default_value='denso_joint_trajectory_controller',
-            description='Robot controller to start.'))
-# Execution arguments (Rviz and Gazebo)
-# TODO: shall we give the user the choice not to load the rviz graphical environment ??
+            description='Robot controller(s) to start. Multiple controllers can be space or comma separated.'))
+
+    # ----------------------- Execution arguments -----------------------
     declared_arguments.append(
         DeclareLaunchArgument('launch_rviz', default_value='true', description='Launch RViz?')
     )
@@ -167,7 +157,7 @@ def generate_launch_description():
             'verbose', default_value='false',
             description='Print out additional debug information.'))
 
-# Initialize Arguments
+    # ----------------------- Initialize Arguments -----------------------
     denso_robot_model = LaunchConfiguration('model')
     ip_address = LaunchConfiguration('ip_address')
     send_format = LaunchConfiguration('send_format')
@@ -184,12 +174,14 @@ def generate_launch_description():
     controllers_file = LaunchConfiguration('controllers_file')
     robot_controller = LaunchConfiguration('robot_controller')
 
+    # ----------------------- Robot description -----------------------
     denso_robot_core_pkg = get_package_share_directory('denso_robot_core')
 
     denso_robot_control_parameters = {
         'denso_bcap_slave_control_cycle_msec': bcap_slave_control_cycle_msec,
         'denso_config_file': PathJoinSubstitution([denso_robot_core_pkg, 'config', 'config.xml'])}
 
+    # Generate robot_description parameter by processing xacro file
     robot_description_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name='xacro')]), ' ',
@@ -204,12 +196,10 @@ def generate_launch_description():
             'verbose:=', verbose, ' ',
             'sim:=', sim, ' '
         ])
-    # robot_description = {'robot_description': robot_description_content}
     robot_description = {'robot_description': ParameterValue(
         robot_description_content, value_type=str)}
 
-# --------- MoveIt Configuration ---------
-
+    # ----------------------- MoveIt configuration -----------------------
     robot_description_semantic_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name='xacro')]), ' ',
@@ -223,15 +213,10 @@ def generate_launch_description():
     kinematics_yaml = load_yaml('denso_robot_moveit_config', 'config/kinematics.yaml')
     robot_description_kinematics = {'robot_description_kinematics': kinematics_yaml}
 
-    # Planning Configuration
+    # OMPL Planning config
     ompl_planning_pipeline_config = {
         'move_group': {
             'planning_plugin': 'ompl_interface/OMPLPlanner',
-            # 'request_adapters': """default_planner_request_adapters/AddTimeOptimalParameterization \
-                # default_planner_request_adapters/FixWorkspaceBounds \
-                # default_planner_request_adapters/FixStartStateBounds \
-                # default_planner_request_adapters/FixStartStateCollision \
-                # default_planner_request_adapters/FixStartStatePathConstraints""",
             'request_adapters': 'default_planner_request_adapters/AddTimeOptimalParameterization' \
                 + ' default_planner_request_adapters/FixWorkspaceBounds' \
                 + ' default_planner_request_adapters/FixStartStateBounds' \
@@ -243,31 +228,17 @@ def generate_launch_description():
     ompl_planning_yaml = load_yaml('denso_robot_moveit_config', 'config/ompl_planning.yaml')
     ompl_planning_pipeline_config['move_group'].update(ompl_planning_yaml)
 
-    # Trajectory Execution Configuration
+    # MoveIt controllers
     moveit_controllers = {
-        'moveit_controller_manager': 'moveit_simple_controller_manager'\
-            + '/MoveItSimpleControllerManager',
+        'moveit_controller_manager': 'moveit_simple_controller_manager/MoveItSimpleControllerManager',
     }
-    # moveit_controllers_file = PathJoinSubstitution(
-    #     [
-    #         FindPackageShare(moveit_config_package), 'robots',
-    #         denso_robot_model, 'config/moveit_controllers.yaml'
-    #     ])
     moveit_controllers_file = PathJoinSubstitution(
         [
             FindPackageShare(moveit_config_package), 'robots',
             denso_robot_model, 'config', LaunchConfiguration('moveit_controllers_file')
         ])
-    # moveit_controllers_file = Command([
-    #     PathJoinSubstitution([FindExecutable(name='xacro')]), ' ',
-    #     PathJoinSubstitution([
-    #         FindPackageShare(moveit_config_package), 'robots',
-    #         denso_robot_model, 'config', 'moveit_controllers.yaml.xacro'
-    #     ]),
-    #     ' ',
-    #     'namespace:=', namespace
-    # ])
 
+    # Trajectory execution settings
     trajectory_execution = {
         'moveit_manage_controllers': False,
         'trajectory_execution.allowed_execution_duration_scaling': 1.2,
@@ -275,6 +246,7 @@ def generate_launch_description():
         'trajectory_execution.allowed_start_tolerance': 0.01,
     }
 
+    # Planning scene monitor settings
     planning_scene_monitor_parameters = {
         'publish_planning_scene': True,
         'publish_geometry_updates': True,
@@ -291,19 +263,22 @@ def generate_launch_description():
         },
     }
 
+    # Occupancy map settings
     occupancy_map_monitor_parameters = {
         'sensors': ['3D_sensor'],
         '3D_sensor': {
-            'sensor_plugin': '', #'~'
+            'sensor_plugin': '',
         },
     }
+
+    # Joint limits
     robot_limits_file = PathJoinSubstitution(
         [
             FindPackageShare(moveit_config_package), 'robots',
             denso_robot_model, 'config/joint_limits.yaml'
         ])
 
-    # Start the actual move_group node/action server
+    # Move group node
     move_group_node = Node(
         package='moveit_ros_move_group',
         executable='move_group',
@@ -322,13 +297,12 @@ def generate_launch_description():
             {'use_sim_time': sim}
         ])
 
-# --------- Robot Control Node (only if 'sim:=false') ---------
+    # Robot control node
     robot_controllers = PathJoinSubstitution(
         [
             FindPackageShare(moveit_config_package), 'robots',
             denso_robot_model, 'config', controllers_file
         ])
-
     control_node = Node(
         package='controller_manager',
         executable='ros2_control_node',
@@ -338,11 +312,10 @@ def generate_launch_description():
             robot_controllers,
             denso_robot_control_parameters
         ],
-        output={
-            'stdout': 'screen',
-            'stderr': 'screen',
-        })
+        output={'stdout': 'screen', 'stderr': 'screen'},
+    )
 
+    # Robot state publisher
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -350,35 +323,34 @@ def generate_launch_description():
         parameters=[{'use_sim_time': sim}, robot_description]
     )
 
+    # Joint state broadcaster
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['denso_joint_state_broadcaster', '--controller-manager', '/controller_manager'])
+        arguments=['denso_joint_state_broadcaster', '--controller-manager', '/controller_manager']
+    )
 
-    robot_controller_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=[robot_controller, '-c', '/controller_manager'])
+    # ----------------------- EDITED: Multi-controller spawn -----------------------
+    def spawn_controllers(context, *args, **kwargs):
+        controllers_arg = LaunchConfiguration('robot_controller').perform(context)
+        controllers = [c.strip() for c in controllers_arg.replace(',', ' ').split() if c.strip()]
+        nodes = []
+        for ctrl in controllers:
+            nodes.append(
+                Node(
+                    package='controller_manager',
+                    executable='spawner',
+                    arguments=[ctrl, '-c', '/controller_manager'],
+                    output='screen'
+                )
+            )
+        return nodes
 
-# TODO: do we need the Warehouse mongodb server ?
-# (always / never / only in simulation with Gazebo ...)
-    # Warehouse mongodb server
+    controller_spawners = OpaqueFunction(function=spawn_controllers)
 
-#    mongodb_server_node = Node(
-#        package='warehouse_ros_mongo',
-#        executable='mongo_wrapper_ros.py',
-#        parameters=[
-#            {'warehouse_port': 33829},
-#            {'warehouse_host': 'localhost'},
-#            {'warehouse_plugin': 'warehouse_ros_mongo::MongoDatabaseConnection'}
-#        ],
-#        output='screen',
-#    )
-
-# --------- rviz with moveit configuration ---------
+    # RViz
     rviz_config_file = PathJoinSubstitution(
         [FindPackageShare(moveit_config_package), 'rviz', 'view_robot.rviz'])
-
     rviz_node = Node(
         package='rviz2',
         condition=IfCondition(launch_rviz),
@@ -393,7 +365,7 @@ def generate_launch_description():
             robot_description_kinematics
         ])
 
-    # Static TF
+    # Static transform
     static_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -404,24 +376,27 @@ def generate_launch_description():
             '--child-frame-id', TextJoinSubstitution([namespace], 'base_link', '')
         ])
 
-# --------- Gazebo Nodes (only if 'sim:=true') ---------
+    # Gazebo
     gazebo = ExecuteProcess(
         condition=IfCondition(sim),
         cmd=['gazebo', '--verbose', 'worlds/empty.world', '-s', 'libgazebo_ros_factory.so'],
-        output='screen')
+        output='screen'
+    )
 
+    # Gazebo spawn
     spawn_entity = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
         condition=IfCondition(sim),
         arguments=['-topic', 'robot_description', '-entity', denso_robot_model],
-        output='screen')
+        output='screen'
+    )
 
+    # ----------------------- Nodes to start -----------------------
     nodes_to_start = [
         control_node,
-        robot_controller_spawner,
+        controller_spawners,  # Updated multi-controller spawner
         move_group_node,
-#        mongodb_server_node,
         rviz_node,
         static_tf,
         gazebo,
