@@ -8,7 +8,7 @@
 			</command_interface>
 			<command_interface name="velocity">
 				<param name="min">0</param>
-				<param name="max">0.392699081698724</param>
+				<param name="max">2.61799</param>
 			</command_interface>
 			<state_interface name="position"/>
 			<state_interface name="velocity"/>
@@ -21,7 +21,7 @@
 			</command_interface>
 			<command_interface name="velocity">
 				<param name="min">0</param>
-				<param name="max">0.261799387799149</param>
+				<param name="max">1.96350</param>
 			</command_interface>
 			<state_interface name="position"/>
 			<state_interface name="velocity"/>
@@ -34,7 +34,7 @@
 			</command_interface>
 			<command_interface name="velocity">
 				<param name="min">0</param>
-				<param name="max">0.285832571599111</param>
+				<param name="max">2.61799</param>
 			</command_interface>
 			<state_interface name="position"/>
 			<state_interface name="velocity"/>
@@ -47,7 +47,7 @@
 			</command_interface>
 			<command_interface name="velocity">
 				<param name="min">0</param>
-				<param name="max">0.392699081698724</param>
+				<param name="max">4.58204</param>
 			</command_interface>
 			<state_interface name="position"/>
 			<state_interface name="velocity"/>
@@ -60,7 +60,7 @@
 			</command_interface>
 			<command_interface name="velocity">
 				<param name="min">0</param>
-				<param name="max">0.302168853397778</param>
+				<param name="max">4.58204</param>
 			</command_interface>
 			<state_interface name="position"/>
 			<state_interface name="velocity"/>
@@ -73,7 +73,7 @@
 			</command_interface>
 			<command_interface name="velocity">
 				<param name="min">0</param>
-				<param name="max">0.628318530717959</param>
+				<param name="max">7.32803</param>
 			</command_interface>
 			<state_interface name="position"/>
 			<state_interface name="velocity"/>
