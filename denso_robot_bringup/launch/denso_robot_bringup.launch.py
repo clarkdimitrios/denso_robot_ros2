@@ -16,14 +16,15 @@
 
 import os
 import yaml
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction, SetEnvironmentVariable
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
-from launch.actions import ExecuteProcess
+from launch.actions import ExecuteProcess, RegisterEventHandler
+from launch.event_handlers import OnProcessExit
 from typing import Text
 from launch.launch_context import LaunchContext
 from launch.substitution import Substitution
@@ -31,7 +32,6 @@ from typing import Iterable
 from typing import Text
 from launch.some_substitutions_type import SomeSubstitutionsType
 from launch_ros.parameter_descriptions import ParameterValue
-
 
 """ Function for loading a yaml file. """
 def load_yaml(package_name, file_path):
@@ -376,15 +376,34 @@ def generate_launch_description():
             '--child-frame-id', TextJoinSubstitution([namespace], 'base_link', '')
         ])
 
-    # Gazebo
+    # --- world file ---
+    world_file = PathJoinSubstitution([
+        FindPackageShare('dual_denso_arm_manipulation'),
+        'worlds',
+        'empty_with_attachment.world',  # contains <plugin filename="libgazebo_link_attacher.so"/>
+    ])
+
+    # --- make sure Gazebo can find IFRA plugin .so ---
+    attacher_prefix = get_package_prefix('ros2_linkattacher')  # IFRA package name
+    set_gz_plugin_path = SetEnvironmentVariable(
+        name='GAZEBO_PLUGIN_PATH',
+        value=f"{attacher_prefix}/lib:" + os.environ.get('GAZEBO_PLUGIN_PATH', '')
+    )
+
+    # --- start Gazebo with ROS init + factory (ROS <-> Gazebo bridge) ---
     gazebo = ExecuteProcess(
         condition=IfCondition(sim),
-        cmd=['gazebo', '--verbose', 'worlds/empty.world', '-s', 'libgazebo_ros_factory.so'],
+        cmd=[
+            'gazebo', '--verbose',
+            world_file,
+            '-s', 'libgazebo_ros_init.so',
+            '-s', 'libgazebo_ros_factory.so',
+        ],
         output='screen'
     )
 
-    # Gazebo spawn
-    spawn_entity = Node(
+    # --- spawn the robot after Gazebo is up ---
+    spawn_robot = Node(
         package='gazebo_ros',
         executable='spawn_entity.py',
         condition=IfCondition(sim),
@@ -392,17 +411,31 @@ def generate_launch_description():
         output='screen'
     )
 
+    # Delay
+    spawn_entity = TimerAction(period=2.0, actions=[spawn_robot])
+
+    # Start controller spawners only AFTER the robot is spawned
+    start_spawners_after_spawn = RegisterEventHandler(
+        OnProcessExit(
+            target_action=spawn_robot,
+            on_exit=[controller_spawners]
+        )
+    )
+
     # ----------------------- Nodes to start -----------------------
     nodes_to_start = [
+        set_gz_plugin_path,   
         control_node,
-        controller_spawners,  # Updated multi-controller spawner
         move_group_node,
         rviz_node,
         static_tf,
         gazebo,
         spawn_entity,
         robot_state_publisher_node,
-        joint_state_broadcaster_spawner
+        # EITHER: let spawners wait (okay)
+        # controller_spawners,
+        # OR: start them after spawn (quieter logs):
+        start_spawners_after_spawn,
+        joint_state_broadcaster_spawner,
     ]
-
     return LaunchDescription(declared_arguments + nodes_to_start)
