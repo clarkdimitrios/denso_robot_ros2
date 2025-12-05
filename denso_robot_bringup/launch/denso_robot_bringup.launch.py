@@ -20,7 +20,7 @@ from ament_index_python.packages import get_package_share_directory, get_package
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, TimerAction, SetEnvironmentVariable
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.actions import ExecuteProcess, RegisterEventHandler
@@ -106,6 +106,23 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'ip_address', default_value='192.168.0.1',
             description='IP address by which the robot can be reached.'))
+    # For Dual Arm
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            'right_ip_address', default_value='192.168.17.20',
+            description='IP address by which the right robot can be reached.'))
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            'left_ip_address', default_value='192.168.17.21',
+            description='IP address by which the left robot can be reached.'))
+    
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            'slave_delay_ms', default_value='400',
+            description='One-time delay (ms) before first slvMove on hardware'
+        )
+    )
+    
 
     # ----------------------- Configuration arguments -----------------------
     declared_arguments.append(
@@ -143,6 +160,23 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'robot_controller', default_value='denso_joint_trajectory_controller',
             description='Robot controller(s) to start. Multiple controllers can be space or comma separated.'))
+    
+    # for HW
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            'launch_moveit',
+            default_value='true',
+            description='Start move_group and related MoveIt nodes.'
+        )
+    )
+
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            'launch_hw',
+            default_value='true',
+            description='Launch ros2_control_node and controllers (hardware).'
+        )
+    )
 
     # ----------------------- Execution arguments -----------------------
     declared_arguments.append(
@@ -160,6 +194,8 @@ def generate_launch_description():
     # ----------------------- Initialize Arguments -----------------------
     denso_robot_model = LaunchConfiguration('model')
     ip_address = LaunchConfiguration('ip_address')
+    left_ip_address = LaunchConfiguration('left_ip_address')
+    right_ip_address = LaunchConfiguration('right_ip_address')
     send_format = LaunchConfiguration('send_format')
     recv_format = LaunchConfiguration('recv_format')
     bcap_slave_control_cycle_msec = LaunchConfiguration('bcap_slave_control_cycle_msec')
@@ -172,7 +208,21 @@ def generate_launch_description():
     sim = LaunchConfiguration('sim')
     verbose = LaunchConfiguration('verbose')
     controllers_file = LaunchConfiguration('controllers_file')
+    launch_moveit = LaunchConfiguration('launch_moveit')
     robot_controller = LaunchConfiguration('robot_controller')
+    launch_hw = LaunchConfiguration('launch_hw')
+
+
+    delay_env = SetEnvironmentVariable(
+        name='DENSO_SLAVE_MODE_DELAY_MS',
+        value=LaunchConfiguration('slave_delay_ms'),
+        condition=IfCondition(
+            PythonExpression([
+                "'", sim, "' == 'false' and '", launch_hw, "' == 'true'"
+            ])
+        ),
+    )   
+
 
     # ----------------------- Robot description -----------------------
     denso_robot_core_pkg = get_package_share_directory('denso_robot_core')
@@ -189,6 +239,8 @@ def generate_launch_description():
                 [FindPackageShare(description_package), 'urdf', description_file]),
             ' ',
             'ip_address:=', ip_address, ' ',
+            'left_ip_address:=', left_ip_address, ' ',
+            'right_ip_address:=', right_ip_address, ' ',
             'model:=', denso_robot_model, ' ',
             'send_format:=', send_format, ' ',
             'recv_format:=', recv_format, ' ',
@@ -243,7 +295,7 @@ def generate_launch_description():
         'moveit_manage_controllers': False,
         'trajectory_execution.allowed_execution_duration_scaling': 1.2,
         'trajectory_execution.allowed_goal_duration_margin': 0.5,
-        'trajectory_execution.allowed_start_tolerance': 0.01,
+        'trajectory_execution.allowed_start_tolerance': 0.1,
     }
 
     # Planning scene monitor settings
@@ -259,7 +311,7 @@ def generate_launch_description():
             'attached_collision_object_topic': '/move_group/planning_scene_monitor',
             'publish_planning_scene_topic': '/move_group/publish_planning_scene',
             'monitored_planning_scene_topic': '/move_group/monitored_planning_scene',
-            'wait_for_initial_state_timeout': 10.0,
+            'wait_for_initial_state_timeout': 100.0,
         },
     }
 
@@ -282,6 +334,10 @@ def generate_launch_description():
     move_group_node = Node(
         package='moveit_ros_move_group',
         executable='move_group',
+        # namespace=PythonExpression([
+        #     '"', namespace, '".rstrip("_")'
+        # ]),
+        condition=IfCondition(launch_moveit),
         output='screen',
         parameters=[
             robot_description,
@@ -306,19 +362,34 @@ def generate_launch_description():
     control_node = Node(
         package='controller_manager',
         executable='ros2_control_node',
-        condition=UnlessCondition(sim),
+        # namespace=PythonExpression([
+        #     '"', namespace, '".rstrip("_")'
+        # ]),
+        condition=IfCondition(
+            PythonExpression([
+                "'", sim, "' == 'false' and '", launch_hw, "' == 'true'"
+            ])
+        ),
         parameters=[
             robot_description,
             robot_controllers,
             denso_robot_control_parameters
         ],
         output={'stdout': 'screen', 'stderr': 'screen'},
+        # name="ros2_control_node"
+    )
+
+    control_node_delayed = TimerAction(
+        period=1.0,
+        actions=[control_node],
+        condition=UnlessCondition(sim),
     )
 
     # Robot state publisher
     robot_state_publisher_node = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
+        # namespace=namespace,
         output='both',
         parameters=[{'use_sim_time': sim}, robot_description]
     )
@@ -327,26 +398,73 @@ def generate_launch_description():
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['denso_joint_state_broadcaster', '--controller-manager', '/controller_manager']
+        # namespace=PythonExpression([
+        #     '"', namespace, '".rstrip("_")'
+        # ]),
+        condition=IfCondition(launch_hw),
+        arguments=[
+            TextJoinSubstitution([namespace], 'denso_joint_state_broadcaster', ''), 
+            # 'denso_joint_state_broadcaster',
+            '--controller-manager',
+            # TextJoinSubstitution([namespace], 'controller_manager', ''),
+            'controller_manager' 
+        ]
     )
 
     # ----------------------- EDITED: Multi-controller spawn -----------------------
     def spawn_controllers(context, *args, **kwargs):
         controllers_arg = LaunchConfiguration('robot_controller').perform(context)
         controllers = [c.strip() for c in controllers_arg.replace(',', ' ').split() if c.strip()]
+
+        ns = LaunchConfiguration('namespace').perform(context)[:-1]
+
         nodes = []
         for ctrl in controllers:
             nodes.append(
                 Node(
                     package='controller_manager',
                     executable='spawner',
-                    arguments=[ctrl, '-c', '/controller_manager'],
+                    # namespace=ns,              # in /right_ or /left_
+                    arguments=[
+                        ctrl,
+                        '-c',
+                        # TextJoinSubstitution([namespace], 'controller_manager', ''),
+                        'controller_manager'  
+                    ],
                     output='screen'
                 )
             )
         return nodes
 
+
+
     controller_spawners = OpaqueFunction(function=spawn_controllers)
+
+    start_spawners_on_hw = TimerAction(
+        period=1.0,
+        actions=[controller_spawners],
+        condition=IfCondition(
+            PythonExpression([
+                "'", sim, "' == 'false' and '", launch_hw, "' == 'true'"
+            ])
+        ),
+    )
+
+    set_slave_after_spawners = TimerAction(
+        period=1.0,  # give spawners time to 'Configured and activated ...'
+        actions=[
+            ExecuteProcess(
+                cmd=['ros2','service','call','/left_vm60b1/ChangeMode',
+                    'denso_robot_core_interfaces/srv/ChangeMode','{mode: 514}']
+            ),
+            ExecuteProcess(
+                cmd=['ros2','service','call','/right_vm60b1/ChangeMode',
+                    'denso_robot_core_interfaces/srv/ChangeMode','{mode: 514}']
+            ),
+        ],
+        condition=UnlessCondition(sim),
+    )
+
 
     # RViz
     rviz_config_file = PathJoinSubstitution(
@@ -422,10 +540,24 @@ def generate_launch_description():
         )
     )
 
+    # slave_delay = Node(
+    #     package='denso_robot_control',
+    #     executable='denso_robot_control',
+    #     name='denso_robot_control',
+    #     output='screen',
+    #     parameters=[{
+    #         'auto_slave': True,      # or False
+    #         'slave_delay_ms': 2000, 
+    #     }],
+    #     )
+
+
     # ----------------------- Nodes to start -----------------------
     nodes_to_start = [
-        set_gz_plugin_path,   
-        control_node,
+        set_gz_plugin_path,  
+        delay_env, 
+        control_node, # tried delay, fail
+        # slave_delay,
         move_group_node,
         rviz_node,
         static_tf,
@@ -436,6 +568,9 @@ def generate_launch_description():
         # controller_spawners,
         # OR: start them after spawn (quieter logs):
         start_spawners_after_spawn,
+        start_spawners_on_hw,
+        # set_slave_after_spawners,
         joint_state_broadcaster_spawner,
+        # control_node_delayed,
     ]
     return LaunchDescription(declared_arguments + nodes_to_start)

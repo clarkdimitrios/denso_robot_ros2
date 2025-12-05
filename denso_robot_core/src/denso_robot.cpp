@@ -584,6 +584,20 @@ HRESULT DensoRobot::ExecSlaveMove(const std::vector<double>& pose, std::vector<d
     vntArgs.push_back(*vntTmp.get());
   }
 
+  {
+    static bool s_warmup_done = false;
+    if (!s_warmup_done) {
+      int delay_ms = 0;
+      if (const char* env = std::getenv("DENSO_SLAVE_MODE_DELAY_MS")) {
+        try { delay_ms = std::max(0, std::stoi(env)); } catch (...) { delay_ms = 0; }
+      }
+      if (delay_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+      }
+      s_warmup_done = true;
+    }
+  }
+  
   hr = m_vecService[DensoBase::SRV_ACT]->ExecFunction(ID_ROBOT_EXECUTE, vntArgs, vntRet);
   if (SUCCEEDED(hr)) {
     HRESULT hrTmp = ParseRecvParameter(

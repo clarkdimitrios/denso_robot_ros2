@@ -112,8 +112,8 @@ public:
 
   enum
   {
-    SLVMODE_TIMEOUT_SYNC = 16,
-    SLVMODE_TIMEOUT_ASYNC = 8,
+    SLVMODE_TIMEOUT_SYNC = 16, //16,
+    SLVMODE_TIMEOUT_ASYNC = 8, //8,
   };
 
 public:

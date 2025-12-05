@@ -294,6 +294,17 @@ HRESULT DensoRobotControl::Initialize(
   if (verbose_) {
     RCLCPP_INFO(rclcpp::get_logger(node_->get_name()), "[DEBUG] Changing to slave mode ...");
   }
+
+  // // before switching to Slave the first time
+  // const char* d = std::getenv("DENSO_SLAVE_MODE_DELAY_MS");
+  // if (d) {
+  //   int ms = std::atoi(d);
+  //   if (ms > 0) {
+  //     RCLCPP_INFO(node_->get_logger(), "Delaying Slave-mode entry by %d ms (env)", ms);
+  //     rclcpp::sleep_for(std::chrono::milliseconds(ms));
+  //   }
+  // }
+
   hr = ChangeModeWithClearError(DensoRobot::SLVMODE_SYNC_WAIT | DensoRobot::SLVMODE_POSE_J);
   if (FAILED(hr)) {
     printErrorDescription(hr, "Failed to change to slave mode");
