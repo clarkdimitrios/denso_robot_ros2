@@ -359,24 +359,69 @@ def generate_launch_description():
             FindPackageShare(moveit_config_package), 'robots',
             denso_robot_model, 'config', controllers_file
         ])
-    control_node = Node(
-        package='controller_manager',
-        executable='ros2_control_node',
-        # namespace=PythonExpression([
-        #     '"', namespace, '".rstrip("_")'
-        # ]),
+    # ----------------------- Namespaced control node -----------------------
+    # When namespace is set (multi-robot), give the controller_manager a unique
+    # node name so that two instances can coexist (e.g. right_controller_manager
+    # and left_controller_manager).  The YAML's "controller_manager:" section
+    # won't match the renamed node, so we load CM params as a dict instead.
+    def _create_control_node(context, *args, **kwargs):
+        ns_raw = LaunchConfiguration('namespace').perform(context)
+        cm_name = (
+            f'{ns_raw}controller_manager' if ns_raw else 'controller_manager'
+        )
+
+        model_val = LaunchConfiguration('model').perform(context)
+        ctrl_file_val = LaunchConfiguration('controllers_file').perform(context)
+        yaml_path = os.path.join(
+            get_package_share_directory('denso_robot_moveit_config'),
+            'robots', model_val, 'config', ctrl_file_val,
+        )
+        with open(yaml_path) as f:
+            full_yaml = yaml.safe_load(f)
+
+        cm_params = (
+            full_yaml
+            .get('controller_manager', {})
+            .get('ros__parameters', {})
+        )
+
+        # Merge controller-specific params (joints, command_interfaces, …)
+        # from the top-level YAML sections into cm_params as nested dicts.
+        # This ensures the CM node receives them as proper hierarchical
+        # parameters (e.g. right_arm_controller.joints) even when the CM
+        # node name differs from 'controller_manager' (multi-robot case).
+        for key, value in full_yaml.items():
+            if key == 'controller_manager':
+                continue
+            if isinstance(value, dict) and 'ros__parameters' in value:
+                if key not in cm_params:
+                    cm_params[key] = {}
+                if isinstance(cm_params[key], dict):
+                    cm_params[key].update(value['ros__parameters'])
+                else:
+                    cm_params[key] = value['ros__parameters']
+
+        return [
+            Node(
+                package='controller_manager',
+                executable='ros2_control_node',
+                name=cm_name,
+                parameters=[
+                    robot_description,
+                    cm_params,
+                    denso_robot_control_parameters,
+                ],
+                output={'stdout': 'screen', 'stderr': 'screen'},
+            )
+        ]
+
+    control_node = OpaqueFunction(
+        function=_create_control_node,
         condition=IfCondition(
             PythonExpression([
                 "'", sim, "' == 'false' and '", launch_hw, "' == 'true'"
             ])
         ),
-        parameters=[
-            robot_description,
-            robot_controllers,
-            denso_robot_control_parameters
-        ],
-        output={'stdout': 'screen', 'stderr': 'screen'},
-        # name="ros2_control_node"
     )
 
     control_node_delayed = TimerAction(
@@ -394,46 +439,65 @@ def generate_launch_description():
         parameters=[{'use_sim_time': sim}, robot_description]
     )
 
-    # Joint state broadcaster
-    joint_state_broadcaster_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        # namespace=PythonExpression([
-        #     '"', namespace, '".rstrip("_")'
-        # ]),
-        condition=IfCondition(launch_hw),
-        arguments=[
-            TextJoinSubstitution([namespace], 'denso_joint_state_broadcaster', ''), 
-            # 'denso_joint_state_broadcaster',
-            '--controller-manager',
-            # TextJoinSubstitution([namespace], 'controller_manager', ''),
-            'controller_manager' 
-        ]
-    )
-
-    # ----------------------- EDITED: Multi-controller spawn -----------------------
+    # ----------------------- Multi-controller spawn -----------------------
+    # Spawns the requested controllers AND the joint-state broadcaster.
+    # For HW multi-robot the CM node name is e.g. right_controller_manager;
+    # for sim (gazebo plugin) it stays 'controller_manager'.
     def spawn_controllers(context, *args, **kwargs):
         controllers_arg = LaunchConfiguration('robot_controller').perform(context)
         controllers = [c.strip() for c in controllers_arg.replace(',', ' ').split() if c.strip()]
 
-        ns = LaunchConfiguration('namespace').perform(context)[:-1]
+        ns_raw = LaunchConfiguration('namespace').perform(context)
+        sim_val = LaunchConfiguration('sim').perform(context)
+
+        # Match the CM node name chosen by _create_control_node
+        if sim_val == 'false' and ns_raw:
+            cm_name = f'{ns_raw}controller_manager'
+        else:
+            cm_name = 'controller_manager'
+
+        # When the CM node has a custom name (multi-robot), _create_control_node
+        # already merges all controller params into the CM node.  Passing
+        # --param-file here would set params_file on the CM, causing it to
+        # re-read the YAML under the wrong node name and ending up with empty
+        # joints / command_interfaces.  Only use -p when the CM keeps its
+        # default name (sim / single-robot).
+        model_val = LaunchConfiguration('model').perform(context)
+        ctrl_file_val = LaunchConfiguration('controllers_file').perform(context)
+        yaml_path = os.path.join(
+            get_package_share_directory('denso_robot_moveit_config'),
+            'robots', model_val, 'config', ctrl_file_val,
+        )
+
+        use_param_file = (cm_name == 'controller_manager')
 
         nodes = []
         for ctrl in controllers:
+            spawn_args = [ctrl, '-c', cm_name]
+            if use_param_file:
+                spawn_args += ['-p', yaml_path]
             nodes.append(
                 Node(
                     package='controller_manager',
                     executable='spawner',
-                    # namespace=ns,              # in /right_ or /left_
-                    arguments=[
-                        ctrl,
-                        '-c',
-                        # TextJoinSubstitution([namespace], 'controller_manager', ''),
-                        'controller_manager'  
-                    ],
-                    output='screen'
+                    arguments=spawn_args,
+                    output='screen',
                 )
             )
+
+        # Joint state broadcaster
+        jsb_name = f'{ns_raw}denso_joint_state_broadcaster'
+        jsb_args = [jsb_name, '-c', cm_name]
+        if use_param_file:
+            jsb_args += ['-p', yaml_path]
+        nodes.append(
+            Node(
+                package='controller_manager',
+                executable='spawner',
+                arguments=jsb_args,
+            )
+        )
+
         return nodes
 
 
@@ -570,7 +634,7 @@ def generate_launch_description():
         start_spawners_after_spawn,
         start_spawners_on_hw,
         # set_slave_after_spawners,
-        joint_state_broadcaster_spawner,
+        # joint_state_broadcaster_spawner is now part of spawn_controllers
         # control_node_delayed,
     ]
     return LaunchDescription(declared_arguments + nodes_to_start)
