@@ -362,9 +362,9 @@ def generate_launch_description():
     control_node = Node(
         package='controller_manager',
         executable='ros2_control_node',
-        # namespace=PythonExpression([
-        #     '"', namespace, '".rstrip("_")'
-        # ]),
+        namespace=PythonExpression([
+            '"', namespace, '".rstrip("_")', 
+        ]),
         condition=IfCondition(
             PythonExpression([
                 "'", sim, "' == 'false' and '", launch_hw, "' == 'true'"
@@ -398,17 +398,14 @@ def generate_launch_description():
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        # namespace=PythonExpression([
-        #     '"', namespace, '".rstrip("_")'
-        # ]),
+        namespace=PythonExpression(['"', namespace, '".rstrip("_")']),  # spawner runs in /right or /left
         condition=IfCondition(launch_hw),
         arguments=[
-            TextJoinSubstitution([namespace], 'denso_joint_state_broadcaster', ''), 
-            # 'denso_joint_state_broadcaster',
+            TextJoinSubstitution([namespace], 'denso_joint_state_broadcaster', ''),
             '--controller-manager',
-            # TextJoinSubstitution([namespace], 'controller_manager', ''),
-            'controller_manager' 
-        ]
+            PythonExpression(['"/', namespace, '".rstrip("_") + "/controller_manager"']),
+        ],
+        output='screen',
     )
 
     # ----------------------- EDITED: Multi-controller spawn -----------------------
@@ -416,7 +413,11 @@ def generate_launch_description():
         controllers_arg = LaunchConfiguration('robot_controller').perform(context)
         controllers = [c.strip() for c in controllers_arg.replace(',', ' ').split() if c.strip()]
 
-        ns = LaunchConfiguration('namespace').perform(context)[:-1]
+        # "right_" -> "right", "left_" -> "left"
+        ns = LaunchConfiguration('namespace').perform(context).rstrip('_')
+
+        # controller_manager fully-qualified name
+        cm = f'/{ns}/controller_manager' if ns else '/controller_manager'
 
         nodes = []
         for ctrl in controllers:
@@ -424,12 +425,11 @@ def generate_launch_description():
                 Node(
                     package='controller_manager',
                     executable='spawner',
-                    # namespace=ns,              # in /right_ or /left_
+                    # optional but recommended: put the spawner itself in the same namespace
+                    namespace=ns,
                     arguments=[
                         ctrl,
-                        '-c',
-                        # TextJoinSubstitution([namespace], 'controller_manager', ''),
-                        'controller_manager'  
+                        '-c', cm,
                     ],
                     output='screen'
                 )
