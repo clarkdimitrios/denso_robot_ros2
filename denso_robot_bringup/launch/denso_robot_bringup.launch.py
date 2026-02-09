@@ -394,12 +394,16 @@ def generate_launch_description():
         parameters=[{'use_sim_time': sim}, robot_description]
     )
 
-    # Joint state broadcaster
+    # Joint state broadcaster (HW mode only; sim mode spawns it after entity spawn)
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
         namespace=PythonExpression(['"', namespace, '".rstrip("_")']),  # spawner runs in /right or /left
-        condition=IfCondition(launch_hw),
+        condition=IfCondition(
+            PythonExpression([
+                "'", sim, "' == 'false' and '", launch_hw, "' == 'true'"
+            ])
+        ),
         arguments=[
             TextJoinSubstitution([namespace], 'denso_joint_state_broadcaster', ''),
             '--controller-manager',
@@ -418,6 +422,13 @@ def generate_launch_description():
 
         # controller_manager fully-qualified name
         cm = f'/{ns}/controller_manager' if ns else '/controller_manager'
+
+        # In sim mode, also spawn the joint_state_broadcaster here
+        # (the standalone spawner only runs in HW mode)
+        sim_val = LaunchConfiguration('sim').perform(context)
+        if sim_val == 'true':
+            broadcaster = f'{ns}_denso_joint_state_broadcaster' if ns else 'denso_joint_state_broadcaster'
+            controllers.append(broadcaster)
 
         nodes = []
         for ctrl in controllers:
